@@ -2,9 +2,13 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from app import db
 from app.models import Game, Move, Match, User
-from datetime import datetime
+from datetime import datetime, timedelta
+from app.models import get_china_time
 
 bp = Blueprint('game', __name__)
+
+# 游戏最大不活跃时间（秒）
+MAX_INACTIVITY_TIME = 1800  # 1800秒无操作自动判负
 
 @bp.route('/api/matches/check', methods=['GET'])
 @login_required
@@ -142,6 +146,33 @@ def get_match(match_id):
         'status': match.status
     }), 200
 
+@bp.route('/api/games/<int:game_id>/heartbeat', methods=['POST'])
+@login_required
+def heartbeat(game_id):
+    """
+    心跳接口，更新玩家的最后活跃时间
+    """
+    user = current_user
+    game = Game.query.get(game_id)
+    
+    if not game:
+        return jsonify({'error': '游戏不存在'}), 404
+    
+    # 检查用户是否是游戏的参与者
+    if game.player1_id != user.id and game.player2_id != user.id:
+        return jsonify({'error': '您不是该游戏的参与者'}), 403
+    
+    # 更新玩家的最后活跃时间
+    current_time = get_china_time()
+    if game.player1_id == user.id:
+        game.player1_last_active = current_time
+    else:
+        game.player2_last_active = current_time
+    
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
 @bp.route('/api/games/<int:game_id>', methods=['GET'])
 @login_required
 def get_game(game_id):
@@ -153,6 +184,48 @@ def get_game(game_id):
             'status': 'error',
             'message': '没有权限查看该对局'
         }), 403
+    
+    # 检查游戏是否正在进行中，并且检查玩家是否长时间未活动
+    if game.status == 'playing':
+        current_time = get_china_time()
+        
+        # 更新当前用户的活跃时间
+        if current_user.id == game.player1_id:
+            game.player1_last_active = current_time
+        else:
+            game.player2_last_active = current_time
+        
+        # 检查对手是否长时间未活动
+        opponent_inactive = False
+        inactive_player_id = None
+        
+        if current_user.id == game.player1_id and game.player2_last_active is not None:
+            if (current_time - game.player2_last_active).total_seconds() > MAX_INACTIVITY_TIME:
+                opponent_inactive = True
+                inactive_player_id = game.player2_id
+        elif current_user.id == game.player2_id and game.player1_last_active is not None:
+            if (current_time - game.player1_last_active).total_seconds() > MAX_INACTIVITY_TIME:
+                opponent_inactive = True
+                inactive_player_id = game.player1_id
+        
+        # 如果对手长时间未活动，自动判负
+        if opponent_inactive and inactive_player_id:
+            # 更新游戏状态
+            game.status = 'abandoned'
+            game.end_time = current_time
+            game.winner_id = current_user.id
+            
+            # 更新积分
+            winner = User.query.get(current_user.id)
+            loser = User.query.get(inactive_player_id)
+            
+            if winner and loser:
+                winner.rating += 10
+                loser.rating -= 10
+                winner.wins += 1
+                loser.losses += 1
+                
+                db.session.commit()
     
     # 获取游戏的所有棋步
     moves_list = []
@@ -260,7 +333,7 @@ def make_move(game_id):
     if win:
         # 更新游戏状态
         game.status = 'finished'
-        game.end_time = datetime.utcnow()
+        game.end_time = get_china_time()
         game.winner_id = current_user.id
         
         # 更新积分: 胜者+10，负者-10
@@ -288,7 +361,7 @@ def make_move(game_id):
     # 检查是否和棋（棋盘填满）
     if moves_count + 1 >= 15 * 15:
         game.status = 'finished'
-        game.end_time = datetime.utcnow()
+        game.end_time = get_china_time()
         
         # 和棋不改变积分
         player1 = User.query.get(game.player1_id)
@@ -317,66 +390,93 @@ def make_move(game_id):
 @bp.route('/api/games/<int:game_id>/exit', methods=['POST'])
 @login_required
 def exit_game(game_id):
-    game = Game.query.get_or_404(game_id)
-    
-    # 检查用户是否是游戏参与者
-    if game.player1_id != current_user.id and game.player2_id != current_user.id:
+    try:
+        # 记录请求信息，帮助调试
+        print(f"收到退出游戏请求: 用户ID={current_user.id}, 游戏ID={game_id}")
+        
+        game = Game.query.get_or_404(game_id)
+        
+        # 检查用户是否是游戏参与者
+        if game.player1_id != current_user.id and game.player2_id != current_user.id:
+            return jsonify({
+                'status': 'error',
+                'message': '无权操作此游戏'
+            }), 403
+        
+        # 只有游戏在等待中或进行中才能退出
+        if game.status not in ['waiting', 'playing']:
+            return jsonify({
+                'status': 'error',
+                'message': '游戏已结束，无法退出'
+            }), 400
+        
+        # 记录游戏当前状态
+        print(f"游戏状态变更: 从 {game.status} 到 abandoned")
+        
+        # 暂存当前状态
+        current_status = game.status
+        
+        # 更新游戏状态
+        game.status = 'abandoned'
+        game.end_time = get_china_time()
+        
+        points_change = 0
+        
+        # 如果是对局中退出，另一方获胜
+        if current_status == 'playing':
+            if current_user.id == game.player1_id:
+                game.winner_id = game.player2_id
+                
+                # 更新积分: 退出者-10，另一方+10
+                player1 = User.query.get(game.player1_id)
+                player2 = User.query.get(game.player2_id)
+                
+                if player1 and player2:
+                    player1.rating -= 10
+                    player2.rating += 10
+                    player1.losses += 1
+                    player2.wins += 1
+                    points_change = -10  # 当前退出玩家的积分变更
+                    print(f"更新积分: 玩家{player1.username}(-10), 玩家{player2.username}(+10)")
+            else:
+                game.winner_id = game.player1_id
+                
+                # 更新积分: 退出者-10，另一方+10
+                player1 = User.query.get(game.player1_id)
+                player2 = User.query.get(game.player2_id)
+                
+                if player1 and player2:
+                    player2.rating -= 10
+                    player1.rating += 10
+                    player2.losses += 1
+                    player1.wins += 1
+                    points_change = -10  # 当前退出玩家的积分变更
+                    print(f"更新积分: 玩家{player2.username}(-10), 玩家{player1.username}(+10)")
+        
+        # 提交更改并确保成功
+        try:
+            db.session.commit()
+            print(f"退出游戏成功完成: 游戏ID={game_id}")
+        except Exception as e:
+            db.session.rollback()
+            print(f"退出游戏数据库错误: {str(e)}")
+            return jsonify({
+                'status': 'error',
+                'message': '数据库更新失败'
+            }), 500
+        
+        return jsonify({
+            'status': 'success',
+            'points_change': points_change
+        }), 200
+        
+    except Exception as e:
+        # 捕获所有未处理的异常
+        print(f"退出游戏处理异常: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': '无权操作此游戏'
-        }), 403
-    
-    # 只有游戏在等待中或进行中才能退出
-    if game.status not in ['waiting', 'playing']:
-        return jsonify({
-            'status': 'error',
-            'message': '游戏已结束，无法退出'
-        }), 400
-    
-    # 暂存当前状态
-    current_status = game.status
-    
-    # 更新游戏状态
-    game.status = 'abandoned'
-    game.end_time = datetime.utcnow()
-    
-    points_change = 0
-    
-    # 如果是对局中退出，另一方获胜
-    if current_status == 'playing':
-        if current_user.id == game.player1_id:
-            game.winner_id = game.player2_id
-            
-            # 更新积分: 退出者-10，另一方+10
-            player1 = User.query.get(game.player1_id)
-            player2 = User.query.get(game.player2_id)
-            
-            if player1 and player2:
-                player1.rating -= 10
-                player2.rating += 10
-                player1.losses += 1
-                player2.wins += 1
-                points_change = -10  # 当前退出玩家的积分变更
-        else:
-            game.winner_id = game.player1_id
-            
-            # 更新积分: 退出者-10，另一方+10
-            player1 = User.query.get(game.player1_id)
-            player2 = User.query.get(game.player2_id)
-            
-            if player1 and player2:
-                player2.rating -= 10
-                player1.rating += 10
-                player2.losses += 1
-                player1.wins += 1
-                points_change = -10  # 当前退出玩家的积分变更
-    
-    db.session.commit()
-    
-    return jsonify({
-        'status': 'success',
-        'points_change': points_change
-    }), 200
+            'message': '服务器处理请求时出错'
+        }), 500
 
 # 检查是否获胜
 def check_win(game_id, x, y, player_id):

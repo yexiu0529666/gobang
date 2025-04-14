@@ -164,6 +164,10 @@ const remainingTime = ref(1800) // 默认30分钟
 let timerInterval = null
 let gameCheckInterval = null // 轮询游戏状态的定时器
 
+// 心跳间隔（毫秒）
+const HEARTBEAT_INTERVAL = 20 * 1000; // 20秒
+let heartbeatInterval = null;
+
 // 获取玩家名称
 const getPlayer1Name = () => {
   if (!game.value) return 'Player 1'
@@ -249,7 +253,16 @@ const makeMove = async (x, y) => {
     }
   } catch (err) {
     console.error('Failed to make move:', err)
-    error.value = '下棋失败：' + (err.response?.data?.message || err.message || '未知错误')
+    
+    // 检查是否是"不是您的回合"错误
+    const errorMessage = err.response?.data?.message || err.message || '未知错误'
+    if (errorMessage.includes('不是您的回合')) {
+      // 只显示弹窗提示，不更新error.value
+      alert('请不要连击哦~')
+    } else {
+      // 其他错误更新error.value
+      error.value = '下棋失败：' + errorMessage
+    }
   }
 }
 
@@ -420,7 +433,22 @@ const clearAllIntervals = () => {
     clearInterval(gameCheckInterval)
     gameCheckInterval = null
   }
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval)
+    heartbeatInterval = null
+  }
 }
+
+// 发送心跳
+const sendHeartbeat = async () => {
+  if (!game.value || game.value.status !== 'playing') return;
+  
+  try {
+    await axios.post(`/api/games/${gameId.value}/heartbeat`);
+  } catch (err) {
+    console.error('Failed to send heartbeat:', err);
+  }
+};
 
 onMounted(async () => {
   // 确保用户已登录
@@ -435,6 +463,13 @@ onMounted(async () => {
     
     // 启动游戏状态轮询
     gameCheckInterval = setInterval(fetchGame, 1000)
+    
+    // 启动心跳
+    heartbeatInterval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL)
+    
+    // 添加窗口关闭和页面离开事件监听
+    window.addEventListener('beforeunload', handlePageClose)
+    window.addEventListener('pagehide', handlePageClose)
   } catch (err) {
     console.error('Error loading game:', err)
     error.value = '加载游戏数据失败，请刷新页面重试'
@@ -444,7 +479,50 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   // 清除所有定时器
   clearAllIntervals()
+  
+  // 移除窗口关闭事件监听
+  window.removeEventListener('beforeunload', handlePageClose)
+  window.removeEventListener('pagehide', handlePageClose)
 })
+
+// 处理页面关闭事件
+const handlePageClose = (event) => {
+  // 只在游戏进行中且玩家是参与者时才处理
+  if (game.value && 
+      game.value.status === 'playing' && 
+      (game.value.player1_id === currentUser.value.id || 
+       game.value.player2_id === currentUser.value.id)) {
+    
+    // 尝试调用退出游戏API
+    try {
+      // 首先尝试使用navigator.sendBeacon（更可靠的方式发送页面卸载请求）
+      const endpoint = `/api/games/${gameId.value}/exit`;
+      const sent = navigator.sendBeacon(endpoint, JSON.stringify({}));
+      
+      // 如果sendBeacon不可用或发送失败，使用同步XHR作为后备方案
+      if (!sent) {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', endpoint, false); // false表示同步
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        // 添加凭据以确保会话cookie被发送
+        xhr.withCredentials = true;
+        xhr.send(JSON.stringify({}));
+        
+        // 检查响应状态
+        if (xhr.status !== 200) {
+          console.error('Failed to send exit request on page close, status:', xhr.status);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to send exit request on page close:', e);
+    }
+    
+    // 显示提示信息
+    event.returnValue = '游戏还在进行中，离开将视为认输！';
+    return event.returnValue;
+  }
+}
 </script>
 
 <style scoped>

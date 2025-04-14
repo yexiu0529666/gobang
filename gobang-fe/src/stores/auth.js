@@ -21,7 +21,7 @@ api.interceptors.response.use(
       
       // 如果不是登录页面和注册页面，才显示提示
       if (currentPath !== '/login' && currentPath !== '/register') {
-        if (confirm('登录已失效，是否返回登录页面？')) {
+        if (confirm('登录无效，请验证登录信息！')) {
           // 用户选择返回登录页
           router.push('/login')
         }
