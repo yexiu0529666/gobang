@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Game {{ game.id }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="game-board">
+            <canvas id="board" width="600" height="600"></canvas>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="game-info">
+            <h3>Game {{ game.id }}</h3>
+            <div class="players">
+                <p>Player 1: {{ game.player1.username }}</p>
+                <p>Player 2: {% if game.player2 %}{{ game.player2.username }}{% else %}Waiting...{% endif %}</p>
+            </div>
+            <div class="status">
+                <p>Status: {{ game.status }}</p>
+                {% if game.winner %}
+                <p>Winner: {{ game.winner.username }}</p>
+                {% endif %}
+            </div>
+            <div class="chat">
+                <div id="messages" class="messages"></div>
+                <div class="input-group">
+                    <input type="text" id="message" class="form-control" placeholder="Type a message...">
+                    <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const socket = io();
+    const gameId = {{ game.id }};
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    const cellSize = 40;
+    const boardSize = 15;
+    let isMyTurn = {{ 'true' if game.player1_id == current_user.id else 'false' }};
+
+    // 加入游戏房间
+    socket.emit('join', { game_id: gameId });
+
+    // 绘制棋盘
+    function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = '#000';
+        
+        // 绘制网格线
+        for (let i = 0; i < boardSize; i++) {
+            ctx.beginPath();
+            ctx.moveTo(cellSize/2, i * cellSize + cellSize/2);
+            ctx.lineTo((boardSize-1) * cellSize + cellSize/2, i * cellSize + cellSize/2);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(i * cellSize + cellSize/2, cellSize/2);
+            ctx.lineTo(i * cellSize + cellSize/2, (boardSize-1) * cellSize + cellSize/2);
+            ctx.stroke();
+        }
+    }
+
+    // 绘制棋子
+    function drawPiece(x, y, isBlack) {
+        ctx.beginPath();
+        ctx.arc(x * cellSize + cellSize/2, y * cellSize + cellSize/2, cellSize/2 - 2, 0, Math.PI * 2);
+        ctx.fillStyle = isBlack ? '#000' : '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+    }
+
+    // 处理点击事件
+    canvas.addEventListener('click', function(e) {
+        if (!isMyTurn) return;
+        
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.floor((e.clientX - rect.left) / cellSize);
+        const y = Math.floor((e.clientY - rect.top) / cellSize);
+        
+        if (x >= 0 && x < boardSize && y >= 0 && y < boardSize) {
+            socket.emit('move', {
+                game_id: gameId,
+                x: x,
+                y: y
+            });
+        }
+    });
+
+    // 处理服务器消息
+    socket.on('move_made', function(data) {
+        const isBlack = data.player === '{{ game.player1.username }}';
+        drawPiece(data.x, data.y, isBlack);
+        isMyTurn = !isMyTurn;
+    });
+
+    socket.on('player_joined', function(data) {
+        addMessage(`${data.username} joined the game`);
+    });
+
+    // 聊天功能
+    function sendMessage() {
+        const message = document.getElementById('message').value;
+        if (message.trim()) {
+            socket.emit('chat', {
+                game_id: gameId,
+                message: message
+            });
+            document.getElementById('message').value = '';
+        }
+    }
+
+    function addMessage(message) {
+        const messages = document.getElementById('messages');
+        const div = document.createElement('div');
+        div.textContent = message;
+        messages.appendChild(div);
+        messages.scrollTop = messages.scrollHeight;
+    }
+
+    socket.on('chat', function(data) {
+        addMessage(`${data.username}: ${data.message}`);
+    });
+
+    // 初始化
+    drawBoard();
+    {% for move in game.moves %}
+    drawPiece({{ move.x }}, {{ move.y }}, {{ 'true' if move.player_id == game.player1_id else 'false' }});
+    {% endfor %}
+</script>
+{% endblock %} 

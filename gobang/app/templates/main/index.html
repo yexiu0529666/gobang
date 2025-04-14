@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="jumbotron">
+    <h1 class="display-4">Welcome to Gobang!</h1>
+    <p class="lead">A real-time online Gomoku game platform.</p>
+    <hr class="my-4">
+    <p>Play against other players in real-time, chat with your opponent, and climb the leaderboard!</p>
+    {% if current_user.is_authenticated %}
+    <a class="btn btn-primary btn-lg" href="{{ url_for('game.new_game') }}" role="button">Start New Game</a>
+    {% else %}
+    <a class="btn btn-primary btn-lg" href="{{ url_for('auth.login') }}" role="button">Login to Play</a>
+    <a class="btn btn-secondary btn-lg" href="{{ url_for('auth.register') }}" role="button">Register</a>
+    {% endif %}
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Real-time Gameplay</h5>
+                <p class="card-text">Play against other players in real-time with instant move updates and chat functionality.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Leaderboard</h5>
+                <p class="card-text">Compete with other players and climb the leaderboard to show off your skills.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Game History</h5>
+                <p class="card-text">View your past games and analyze your performance to improve your strategy.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
