@@ -4,7 +4,8 @@ from flask_socketio import SocketIO
 from flask_login import LoginManager
 from flask_cors import CORS
 import eventlet
-eventlet.monkey_patch()
+from flask_mail import Mail
+import os
 
 db = SQLAlchemy()
 socketio = SocketIO(
@@ -20,8 +21,9 @@ login_manager = LoginManager()
 
 def create_app():
     app = Flask(__name__)
-    app.config['SECRET_KEY'] = 'your-secret-key'
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///gobang.db'
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or 'dev'
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL') or \
+        'sqlite:///' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'gobang.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     CORS(app, resources={

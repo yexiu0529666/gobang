@@ -1,82 +1,47 @@
 <template>
-  <div class="container mt-5">
-    <div class="row justify-content-center">
-      <div class="col-md-6">
-        <div class="card">
-          <div class="card-header">
-            <h3 class="text-center">登录</h3>
-          </div>
-          <div class="card-body">
-            <div v-if="error" class="alert alert-danger" role="alert">
-              {{ error }}
-            </div>
-            <form @submit.prevent="handleSubmit">
-              <div class="mb-3">
-                <label for="username" class="form-label">用户名</label>
-                <input
-                  type="text"
-                  class="form-control"
-                  :class="{ 'is-invalid': usernameError }"
-                  id="username"
-                  v-model="username"
-                  required
-                  @input="clearError"
-                >
-                <div v-if="usernameError" class="invalid-feedback">
-                  {{ usernameError }}
-                </div>
-              </div>
-              <div class="mb-3">
-                <label for="password" class="form-label">密码</label>
-                <input
-                  type="password"
-                  class="form-control"
-                  :class="{ 'is-invalid': passwordError }"
-                  id="password"
-                  v-model="password"
-                  required
-                  @input="clearError"
-                >
-                <div v-if="passwordError" class="invalid-feedback">
-                  {{ passwordError }}
-                </div>
-              </div>
-              <div class="mb-3 form-check">
-                <input
-                  type="checkbox"
-                  class="form-check-input"
-                  id="remember"
-                  v-model="remember"
-                >
-                <label class="form-check-label" for="remember">记住我</label>
-              </div>
-              <div class="d-grid">
-                <button type="submit" class="btn btn-primary" :disabled="loading">
-                  <span v-if="loading" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                  登录
-                </button>
-              </div>
-            </form>
-          </div>
-          <div class="card-footer text-center">
-            <p class="mb-0">还没有账号？ <router-link to="/register">注册</router-link></p>
+  <div class="login-container">
+    <div class="login-card">
+      <h1 class="text-center mb-4">登录</h1>
+      <form @submit.prevent="handleLogin" class="login-form">
+        <div class="form-group">
+          <label for="username">用户名</label>
+          <div class="input-group">
+            <span class="input-group-text">
+              <i class="bi bi-person"></i>
+            </span>
+            <input
+              type="text"
+              id="username"
+              v-model="username"
+              class="form-control"
+              placeholder="请输入用户名"
+              required
+            />
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- 登录成功弹窗 -->
-    <div class="modal fade" id="successModal" tabindex="-1" aria-labelledby="successModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title" id="successModalLabel">登录成功</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            登录成功！即将跳转
+        <div class="form-group">
+          <label for="password">密码</label>
+          <div class="input-group">
+            <span class="input-group-text">
+              <i class="bi bi-lock"></i>
+            </span>
+            <input
+              type="password"
+              id="password"
+              v-model="password"
+              class="form-control"
+              placeholder="请输入密码"
+              required
+            />
           </div>
         </div>
+        <button type="submit" class="btn btn-primary w-100" :disabled="loading">
+          <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+          {{ loading ? '登录中...' : '登录' }}
+        </button>
+      </form>
+      <div class="text-center mt-4">
+        <p class="mb-0">还没有账号？<router-link to="/register" class="text-primary">立即注册</router-link></p>
       </div>
     </div>
   </div>
@@ -84,67 +49,28 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { Modal } from 'bootstrap'
 
 const router = useRouter()
-const route = useRoute()
 const authStore = useAuthStore()
 
 const username = ref('')
 const password = ref('')
-const remember = ref(false)
 const loading = ref(false)
-const error = ref('')
-const usernameError = ref('')
-const passwordError = ref('')
 
-const clearError = () => {
-  error.value = ''
-  usernameError.value = ''
-  passwordError.value = ''
-}
-
-const handleSubmit = async () => {
-  clearError()
-  
-  if (!username.value) {
-    usernameError.value = '请输入用户名'
+const handleLogin = async () => {
+  if (!username.value || !password.value) {
+    alert('请输入用户名和密码')
     return
   }
-  if (!password.value) {
-    passwordError.value = '请输入密码'
-    return
-  }
-  
+
   loading.value = true
   try {
     await authStore.login(username.value, password.value)
-    // 显示成功弹窗
-    const successModal = new Modal(document.getElementById('successModal'))
-    successModal.show()
-    
-    // 2秒后跳转到开始游戏页面
-    setTimeout(() => {
-      successModal.hide()
-      router.push('/')
-    }, 500)
-  } catch (err) {
-    if (err.response) {
-      const { data } = err.response
-      if (data.error) {
-        error.value = data.error === 'Invalid username or password' ? '用户名或密码错误' : data.error
-      } else if (data.message) {
-        error.value = data.message
-      } else {
-        error.value = '登录失败，请稍后重试'
-      }
-    } else {
-      error.value = '网络错误，请检查网络连接'
-    }
-    // 登录失败，跳转到首页
     router.push('/')
+  } catch (error) {
+    alert(error.message || '登录失败')
   } finally {
     loading.value = false
   }
@@ -152,7 +78,103 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped>
-.alert {
-  margin-bottom: 1rem;
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  position: relative;
+  z-index: 1;
+}
+
+.login-card {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 2.5rem;
+  border-radius: 1rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 500px;
+  animation: fadeIn 0.5s ease-out;
+  backdrop-filter: blur(10px);
+}
+
+.login-form {
+  margin-top: 2rem;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #4a5568;
+  font-weight: 500;
+}
+
+.input-group {
+  position: relative;
+}
+
+.input-group-text {
+  background-color: rgba(248, 250, 252, 0.8);
+  border-right: none;
+  color: #64748b;
+}
+
+.form-control {
+  border-left: none;
+  padding: 0.75rem 1rem;
+  transition: all 0.3s ease;
+  background-color: rgba(255, 255, 255, 0.8);
+}
+
+.form-control:focus {
+  box-shadow: none;
+  border-color: #ced4da;
+  background-color: white;
+}
+
+.form-control:focus + .input-group-text {
+  border-color: #ced4da;
+}
+
+.btn-primary {
+  padding: 0.75rem;
+  font-weight: 500;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:disabled {
+  background: linear-gradient(135deg, #a5b1fc 0%, #b8a6d4 100%);
+  transform: none;
+  box-shadow: none;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 576px) {
+  .login-card {
+    padding: 2rem;
+    margin: 1rem;
+  }
 }
 </style> 

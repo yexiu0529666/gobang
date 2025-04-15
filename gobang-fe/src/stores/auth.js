@@ -37,7 +37,7 @@ api.interceptors.response.use(
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
-    token: null,
+    token: localStorage.getItem('token') || null,
     api  // 将 api 实例添加到 state 中
   }),
   
@@ -83,9 +83,12 @@ export const useAuthStore = defineStore('auth', {
       }
     },
     
-    async register(username, email, password) {
+    async register(data) {
       try {
-        const response = await api.post('/auth/register', { username, email, password })
+        const response = await api.post('/auth/register', data)
+        if (response.data.error) {
+          throw new Error(response.data.error)
+        }
         this.token = response.data.token
         this.user = response.data.user
         localStorage.setItem('token', this.token)
@@ -93,7 +96,7 @@ export const useAuthStore = defineStore('auth', {
         return true
       } catch (error) {
         console.error('Registration failed:', error)
-        return false
+        throw error
       }
     },
     
@@ -130,6 +133,15 @@ export const useAuthStore = defineStore('auth', {
             delete api.defaults.headers.common['Authorization']
           }
         }
+      }
+    },
+
+    async sendVerificationCode(email) {
+      try {
+        const response = await api.post('/auth/send-verification-code', { email })
+        return response.data
+      } catch (error) {
+        throw new Error(error.response?.data?.error || '发送验证码失败')
       }
     }
   }
