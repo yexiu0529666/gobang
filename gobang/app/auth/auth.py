@@ -175,7 +175,7 @@ def login():
     # 生成 JWT token
     token = jwt.encode({
         'user_id': user.id,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(days=1)
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=20)
     }, 'secret-key', algorithm='HS256')
     
     return jsonify({

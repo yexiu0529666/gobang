@@ -260,6 +260,112 @@ def get_game(game_id):
         'current_player_id': game.player1_id if len(moves_list) % 2 == 0 else game.player2_id
     }), 200
 
+# 检查三三禁手
+# 返回True表示违反三三禁手，False表示没有违反
+
+def check_winning_move(x, y, positions, directions, board_size=15):
+    """检查是否形成四子或五子连线"""
+    for dx, dy in directions:
+        count = 1
+        for direction in [1, -1]:
+            for i in range(1, 5):
+                nx, ny = x + i * direction * dx, y + i * direction * dy
+                if not (0 <= nx < board_size and 0 <= ny < board_size) or (nx, ny) not in positions:
+                    break
+                count += 1
+        if count >= 4:
+            print(f"发现四子或五子连线，方向: ({dx}, {dy}), 计数: {count}")
+            return True
+    return False
+
+def find_active_threes(positions, all_positions, board_size=15):
+    """查找棋盘上所有活三"""
+    directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
+    active_threes = []
+    
+    # 遍历棋盘上所有可能的起点
+    for x in range(board_size):
+        for y in range(board_size):
+            for dx, dy in directions:
+                # 检查以 (x, y) 为起点的三连子
+                three_line = [(x + i*dx, y + i*dy) for i in range(3)]
+                
+                # 边界检查
+                if not all(0 <= px < board_size and 0 <= py < board_size for px, py in three_line):
+                    continue
+                
+                # 检查是否为己方棋子
+                if not all(pos in positions for pos in three_line):
+                    continue
+                
+                # 检查两端是否为空
+                left_point = (three_line[0][0] - dx, three_line[0][1] - dy)
+                right_point = (three_line[2][0] + dx, three_line[2][1] + dy)
+                
+                left_open = (0 <= left_point[0] < board_size and 
+                            0 <= left_point[1] < board_size and 
+                            left_point not in all_positions)
+                right_open = (0 <= right_point[0] < board_size and 
+                             0 <= right_point[1] < board_size and 
+                             right_point not in all_positions)
+                
+                if left_open and right_open:
+                    active_threes.append(three_line)
+    
+    return active_threes
+
+def check_three_three_rule(game_id, x, y, player_id, board_size=15):
+    """
+    检查是否违反三三禁手规则
+    三三禁手：一子落下后，在棋盘上同时形成两个或以上的活三
+    活三：在一条线上连续的三个己方棋子，且两端都有空位
+    """
+    print(f"检查三三禁手: 位置({x}, {y}), 玩家ID={player_id}")
+    
+    # 输入验证
+    if not (0 <= x < board_size and 0 <= y < board_size):
+        raise ValueError("落子位置超出棋盘范围")
+
+    # 获取棋盘状态
+    all_moves = Move.query.filter_by(game_id=game_id).all()
+    if not all_moves:
+        print("警告：未找到任何棋子记录")
+    positions = set((move.x, move.y) for move in all_moves if move.player_id == player_id)
+    all_positions = set((move.x, move.y) for move in all_moves)
+    
+    if (x, y) in all_positions:
+        raise ValueError("当前位置已有棋子")
+    
+    print(f"玩家棋子（落子前）: {positions}")
+    print(f"所有棋子（落子前）: {all_positions}")
+
+    # 检查落子前的活三
+    before_threes = find_active_threes(positions, all_positions, board_size)
+    print(f"落子前的活三: {before_threes}")
+
+    # 临时添加当前落子
+    positions.add((x, y))
+    all_positions.add((x, y))
+
+    # 检查是否直接获胜
+    if check_winning_move(x, y, positions, [(1, 0), (0, 1), (1, 1), (1, -1)], board_size):
+        print("直接形成四子或五子连线，非禁手")
+        return False
+
+    # 检查落子后的活三
+    after_threes = find_active_threes(positions, all_positions, board_size)
+    print(f"落子后的活三: {after_threes}")
+
+    # 找出新增的活三
+    before_threes_set = {frozenset(three) for three in before_threes}
+    new_threes = [three for three in after_threes if frozenset(three) not in before_threes_set]
+    print(f"新增的活三: {new_threes}")
+
+    # 判断三三禁手
+    is_three_three = len(after_threes) >= 2
+    print(f"三三禁手结果: {'违反' if is_three_three else '未违反'}")
+    return is_three_three
+
 @bp.route('/api/games/<int:game_id>/move', methods=['POST'])
 @login_required
 def make_move(game_id):
@@ -315,6 +421,23 @@ def make_move(game_id):
             'message': '该位置已有棋子'
         }), 400
     
+    # 检查三三禁手，仅对黑子（假设为player1）适用
+    if current_user.id == game.player1_id:
+        print(f"\n========== 三三禁手检查开始 ==========")
+        print(f"当前玩家是黑子 (ID={current_user.id}), 落子位置: ({x}, {y})")
+        is_three_three = check_three_three_rule(game_id, x, y, current_user.id)
+        print(f"三三禁手检查结果: {'违反三三禁手' if is_three_three else '未违反三三禁手'}")
+        print(f"========== 三三禁手检查结束 ==========\n")
+        
+        if is_three_three:
+            # 返回具体的错误信息，包括三三禁手的解释
+            return jsonify({
+                'status': 'error',
+                'message': '违反三三禁手规则：黑棋不能在一步棋中同时形成两个或以上的活三'
+            }), 400
+    else:
+        print(f"当前玩家是白子 (ID={current_user.id}), 跳过三三禁手检查")
+    
     # 创建新的落子记录
     move = Move(
         game_id=game_id,
@@ -325,7 +448,7 @@ def make_move(game_id):
     )
     
     db.session.add(move)
-    db.session.flush()  # 刷新会话以获取 move.id
+    db.session.flush()
     
     # 检查是否获胜
     win = check_win(game_id, x, y, current_user.id)

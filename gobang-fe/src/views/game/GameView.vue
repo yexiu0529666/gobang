@@ -233,16 +233,13 @@ const makeMove = async (x, y) => {
       // 如果游戏结束
       if (response.data.game_over) {
         // 更新游戏状态
-        if (response.data.draw) {
-          alert(`游戏结束，双方平局！`)
-        } else {
-          const isWinner = response.data.winner_id === currentUser.value.id
-          alert(`游戏结束，${isWinner ? '你赢了！' : '你输了。'}\n积分变更: ${response.data.points_change > 0 ? '+' + response.data.points_change : response.data.points_change}`)
-        }
-        // 2秒后返回首页
-        setTimeout(() => {
-          router.push('/')
-        }, 2000)
+        //if (response.data.draw) {
+          //  alert(`游戏结束，双方平局！`)
+        //} else {
+          //const isWinner = response.data.winner_id === currentUser.value.id
+          //alert(`游戏结束，${isWinner ? '你赢了！' : '你输了。'}\n积分变更: ${response.data.points_change > 0 ? '+' + response.data.points_change : response.data.points_change}`)
+        //}
+
         return
       }
       
@@ -259,6 +256,9 @@ const makeMove = async (x, y) => {
     if (errorMessage.includes('不是您的回合')) {
       // 只显示弹窗提示，不更新error.value
       alert('请不要连击哦~')
+    } else if (errorMessage.includes('违反三三禁手')) {
+      // 显示三三禁手违规提示
+      alert('违反三三禁手规则！')
     } else {
       // 其他错误更新error.value
       error.value = '下棋失败：' + errorMessage
@@ -358,7 +358,7 @@ const fetchGame = async () => {
       }
       
       // 如果游戏状态变为结束或放弃，处理结束逻辑
-      if ((oldStatus === 'playing' || oldStatus === 'waiting') && 
+      if ((oldStatus === 'playing') && 
           (game.value.status === 'finished' || game.value.status === 'abandoned')) {
         handleGameOver()
       }
@@ -384,43 +384,142 @@ const handleGameOver = () => {
     timerInterval = null
   }
   
-  // 显示游戏结束提示
-  let message = game.value.status === 'finished' 
-    ? '游戏已结束！' 
-    : '游戏已被放弃！'
-    
-  if (game.value.winner_id) {
-    const winnerName = game.value.winner_id === currentUser.value.id 
-      ? '你' 
-      : (game.value.winner_id === game.value.player1_id 
-        ? game.value.player1_username 
-        : game.value.player2_username)
-    message += ` ${winnerName}获胜！`
-    
-    // 添加积分提示
-    if (game.value.status === 'abandoned') {
-      // 如果是放弃游戏
-      if (game.value.points_change) {
-        message += `\n积分变更: ${game.value.points_change > 0 ? '+' + game.value.points_change : game.value.points_change}`
-      }
+  // 确保游戏已结束
+  if (game.value.status !== 'finished' && game.value.status !== 'abandoned') {
+    return // 如果游戏未结束，不显示胜利/失败信息
+  }
+  
+  // 清理可能存在的旧消息
+  const existingResultContainer = document.getElementById('game-result-container');
+  if (existingResultContainer) {
+    existingResultContainer.remove();
+  }
+  
+  if (!game.value.winner_id) {
+    return; // 如果没有胜利者（平局或其他情况），不显示胜利/失败信息
+  }
+  
+  // 判断胜负
+  const isWinner = game.value.winner_id === currentUser.value.id;
+  
+  // 创建结果容器
+  const resultContainer = document.createElement('div');
+  resultContainer.id = 'game-result-container';
+  resultContainer.style.position = 'fixed';
+  resultContainer.style.top = '0';
+  resultContainer.style.left = '0';
+  resultContainer.style.width = '100%';
+  resultContainer.style.height = '100%';
+  resultContainer.style.display = 'flex';
+  resultContainer.style.flexDirection = 'column';
+  resultContainer.style.justifyContent = 'center';
+  resultContainer.style.alignItems = 'center';
+  resultContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.75)';
+  resultContainer.style.zIndex = '9999';
+  resultContainer.style.opacity = '0';
+  resultContainer.style.transition = 'opacity 0.5s ease';
+  
+  // 创建结果标题
+  const resultTitle = document.createElement('div');
+  
+  if (isWinner) {
+    resultTitle.textContent = '胜利!';
+    resultTitle.style.color = '#4CAF50';
+    resultTitle.style.textShadow = '0 0 10px rgba(76, 175, 80, 0.7)';
+  } else {
+    resultTitle.textContent = '失败!';
+    resultTitle.style.color = '#F44336';
+    resultTitle.style.textShadow = '0 0 10px rgba(244, 67, 54, 0.7)';
+  }
+  
+  resultTitle.style.fontSize = '72px';
+  resultTitle.style.fontWeight = 'bold';
+  resultTitle.style.marginBottom = '20px';
+  resultTitle.style.transform = 'scale(0.1)';
+  resultTitle.style.transition = 'transform 0.5s ease';
+  
+  // 创建结果消息
+  const resultMessage = document.createElement('div');
+  resultMessage.style.color = '#FFFFFF';
+  resultMessage.style.fontSize = '24px';
+  resultMessage.style.marginBottom = '30px';
+  resultMessage.style.textAlign = 'center';
+  resultMessage.style.opacity = '0';
+  resultMessage.style.transition = 'opacity 0.5s ease 0.3s';
+  
+  // 添加积分提示
+  let pointsMessage = '';
+  if (game.value.status === 'abandoned') {
+    if (game.value.points_change) {
+      pointsMessage = `积分变更: ${game.value.points_change > 0 ? '+' + game.value.points_change : game.value.points_change}`;
+    }
+  } else {
+    if (isWinner) {
+      pointsMessage = '你获得了+10积分！';
     } else {
-      // 如果是正常结束游戏
-      if (game.value.winner_id === currentUser.value.id) {
-        message += '\n你获得了+10积分！'
-      } else {
-        message += '\n你失去了10积分。'
-      }
+      pointsMessage = '你失去了10积分。';
     }
   }
   
-  // 显示提示并在2秒后返回首页
+  const winnerName = isWinner 
+    ? '你' 
+    : (game.value.winner_id === game.value.player1_id 
+       ? game.value.player1_username 
+       : game.value.player2_username);
+  
+  resultMessage.innerHTML = `${winnerName}获胜！<br>${pointsMessage}`;
+  
+  // 创建倒计时元素
+  const countdownElement = document.createElement('div');
+  countdownElement.style.color = '#FFFFFF';
+  countdownElement.style.fontSize = '18px';
+  countdownElement.style.marginTop = '20px';
+  countdownElement.style.padding = '10px 20px';
+  countdownElement.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+  countdownElement.style.borderRadius = '20px';
+  countdownElement.style.opacity = '0';
+  countdownElement.style.transition = 'opacity 0.5s ease 0.6s';
+  
+  // 添加元素到容器
+  resultContainer.appendChild(resultTitle);
+  resultContainer.appendChild(resultMessage);
+  resultContainer.appendChild(countdownElement);
+  document.body.appendChild(resultContainer);
+  
+  // 触发动画
   setTimeout(() => {
-    if (confirm(message + '\n\n是否查看对局回放？')) {
-      router.push(`/replay/${gameId.value}`)
-    } else {
-      router.push('/')
-    }
-  }, 500)
+    resultContainer.style.opacity = '1';
+    resultTitle.style.transform = 'scale(1)';
+    
+    setTimeout(() => {
+      resultMessage.style.opacity = '1';
+      
+      setTimeout(() => {
+        countdownElement.style.opacity = '1';
+        
+        // 倒计时
+        let countdown = 5;
+        countdownElement.textContent = `${countdown}秒后返回主页`;
+        
+        const countdownInterval = setInterval(() => {
+          countdown--;
+          countdownElement.textContent = `${countdown}秒后返回主页`;
+          
+          if (countdown <= 0) {
+            clearInterval(countdownInterval);
+            
+            // 淡出动画
+            resultContainer.style.opacity = '0';
+            
+            setTimeout(() => {
+              resultContainer.remove();
+              router.push('/');
+            }, 500);
+          }
+        }, 1000);
+      }, 300);
+    }, 300);
+  }, 100);
 }
 
 // 清除所有定时器
